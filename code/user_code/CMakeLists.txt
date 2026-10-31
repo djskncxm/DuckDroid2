@@ -39,6 +39,17 @@ target_include_directories(duckemu_user_szstone PUBLIC "${CMAKE_CURRENT_SOURCE_D
 target_link_libraries(duckemu_user_szstone PRIVATE duckemu_runtime)
 duckemu_set_warnings(duckemu_user_szstone)
 
+# Douyin 40.8.0: libmetasec_ml.so seven-header signer. The .so and the device
+# property picture live in this project's assets/.
+set(DUCKEMU_DY7_CASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dy7_case")
+add_library(duckemu_user_dy7 STATIC
+  dy7_case/dy7_env.cpp
+  dy7_case/dy7_case.cpp
+)
+target_include_directories(duckemu_user_dy7 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(duckemu_user_dy7 PRIVATE duckemu_runtime)
+duckemu_set_warnings(duckemu_user_dy7)
+
 # M7: every project also implements the worker's AppPlugin seam. The registry
 # is the only place app ids are named on this side of the boundary.
 add_library(duckemu_user_registry STATIC
@@ -46,12 +57,14 @@ add_library(duckemu_user_registry STATIC
   libeleven_case/plugin.cpp
   jdgs_case/plugin.cpp
   szstone_case/plugin.cpp
+  dy7_case/plugin.cpp
 )
 target_include_directories(duckemu_user_registry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(duckemu_user_registry PUBLIC
   duckemu_user_libeleven
   duckemu_user_jdgs
   duckemu_user_szstone
+  duckemu_user_dy7
   duckemu_common
 )
 duckemu_set_warnings(duckemu_user_registry)
@@ -105,3 +118,18 @@ target_compile_definitions(duckemu_szstone_case PRIVATE
   DUCKEMU_SZSTONE_ROOT="${DUCKEMU_SZSTONE_CASE_DIR}/assets/root"
   DUCKEMU_SZSTONE_PROPERTIES="${DUCKEMU_SZSTONE_CASE_DIR}/szstone.properties")
 duckemu_set_warnings(duckemu_szstone_case)
+
+# 抖音 40.8.0 runner: ROM libc + the project's libmetasec_ml.so, with the Mi 8
+# property picture the signer was validated against.
+add_executable(duckemu_dy7_case
+  dy7_case/main.cpp
+)
+target_link_libraries(duckemu_dy7_case PRIVATE
+  duckemu_runtime
+  duckemu_user_dy7)
+target_compile_definitions(duckemu_dy7_case PRIVATE
+  DUCKEMU_ROM_BOOTSTRAP="${DUCKEMU_ROM_BOOTSTRAP}"
+  DUCKEMU_ROM_LIB64="${DUCKEMU_ROM_LIB64}"
+  DUCKEMU_DY7_SO="${DUCKEMU_DY7_CASE_DIR}/assets/libmetasec_ml.so"
+  DUCKEMU_DY7_PROPERTIES="${DUCKEMU_DY7_CASE_DIR}/dy7.properties")
+duckemu_set_warnings(duckemu_dy7_case)
