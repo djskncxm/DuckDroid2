@@ -43,6 +43,9 @@ Result<void> installJavaSecurity(JavaWorld &world);
 // Reads the int a java.lang.Integer carries. Host runners that hold an object
 // address use this instead of reaching for the pack's field layout.
 Result<int32_t> integerValue(JavaWorld &world, uint64_t object);
+// The same for the other box classes a native returns to its host caller.
+Result<bool> booleanValue(JavaWorld &world, uint64_t object);
+Result<uint64_t> longValue(JavaWorld &world, uint64_t object);
 
 // Creates a java.io.File for an absolute path. Target packs use it when an
 // Android method (Context.getFilesDir) has to hand the guest a File object.

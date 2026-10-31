@@ -274,9 +274,233 @@ Result<void> installSystem(JavaWorld &world)
 	{
 		return result;
 	}
-	return declare(world, klass, "identityHashCode", "(Ljava/lang/Object;)I", true,
+	result = declare(world, klass, "identityHashCode", "(Ljava/lang/Object;)I", true,
 		[](JavaWorld &, InvokeContext &call) -> Result<uint64_t> {
 			return call.args[0] == 0 ? uint64_t{ 0 } : identityHash(call.args[0]);
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	// System.getProperty serves the JVM properties the Android runtime seeds
+	// itself (libcore System.initProperties); unknown keys are null, not "".
+	// These are platform constants, not device values: ro.* belongs to the
+	// property service and is deliberately not served here.
+	return declare(world, klass, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;",
+		true, [](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			if (call.args.empty() || call.args[0] == 0)
+			{
+				return uint64_t{ 0 };
+			}
+			auto key = java.stringUtf8(call.args[0]);
+			if (!key.ok())
+			{
+				return key.error();
+			}
+			const char *value = nullptr;
+			if (key.value() == "os.arch")
+			{
+				value = "aarch64";
+			}
+			else if (key.value() == "java.vm.version")
+			{
+				value = "2.1.0";
+			}
+			else if (key.value() == "java.vm.name")
+			{
+				value = "Dalvik";
+			}
+			else if (key.value() == "java.vendor")
+			{
+				value = "The Android Project";
+			}
+			else if (key.value() == "os.name")
+			{
+				value = "Linux";
+			}
+			if (value == nullptr)
+			{
+				return uint64_t{ 0 };
+			}
+			return java.newString(value);
+		});
+}
+
+// java.lang.Thread: targets that label their signer output with the current
+// thread need the object plus its name. One host thread serves the instance,
+// so currentThread() always answers the same object.
+Result<void> installThread(JavaWorld &world)
+{
+	auto declared = world.declareClass("java/lang/Thread", "java/lang/Object");
+	if (!declared.ok())
+	{
+		return declared.error();
+	}
+	const uint64_t klass = declared.value();
+
+	auto element = world.declareClass("java/lang/StackTraceElement", "java/lang/Object");
+	if (!element.ok())
+	{
+		return element.error();
+	}
+	const uint64_t element_class = element.value();
+
+	auto thread = world.allocateObject(klass);
+	if (!thread.ok())
+	{
+		return thread.error();
+	}
+	auto result = declare(world, klass, "<init>", "()V", false,
+		[](JavaWorld &, InvokeContext &) -> Result<uint64_t> { return uint64_t{ 0 }; });
+	if (!result.ok())
+	{
+		return result;
+	}
+	result = declare(world, klass, "currentThread", "()Ljava/lang/Thread;", true,
+		[thread](JavaWorld &, InvokeContext &) -> Result<uint64_t> {
+			return thread.value();
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	result = declare(world, klass, "getName", "()Ljava/lang/String;", false,
+		[](JavaWorld &java, InvokeContext &) -> Result<uint64_t> {
+			return java.newString("main");
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	// The host thread has no managed frames, so the honest stack trace is the
+	// empty array (the class is declared so the element type is real). Targets
+	// use this for hook detection and accept an empty trace.
+	return declare(world, klass, "getStackTrace", "()[Ljava/lang/StackTraceElement;",
+		false, [element_class](JavaWorld &java, InvokeContext &) -> Result<uint64_t> {
+			return java.newArray(ArrayElementKind::Object, 0, element_class);
+		});
+}
+
+// Boolean and Long are value holders like Integer: the native constructs them,
+// stores a primitive through <init>, and reads it back through the getter or a
+// host runner reads the field via booleanValue()/longValue() below.
+Result<void> installBoolean(JavaWorld &world)
+{
+	auto declared = world.declareClass("java/lang/Boolean", "java/lang/Object");
+	if (!declared.ok())
+	{
+		return declared.error();
+	}
+	const uint64_t klass = declared.value();
+	auto value = world.declareField(klass, "value", "Z", false);
+	if (!value.ok())
+	{
+		return value.error();
+	}
+	const uint64_t value_field = value.value();
+
+	auto result = declare(world, klass, "<init>", "(Z)V", false,
+		[value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			if (call.args.size() != 1)
+			{
+				return Error{ ErrorCode::InvalidArgument, "Boolean.<init> expects one boolean" };
+			}
+			auto written = java.writeInstanceField(call.receiver, value_field, call.args[0]);
+			if (!written.ok())
+			{
+				return written.error();
+			}
+			return uint64_t{ 0 };
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	result = declare(world, klass, "valueOf", "(Z)Ljava/lang/Boolean;", true,
+		[klass, value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			if (call.args.size() != 1)
+			{
+				return Error{ ErrorCode::InvalidArgument, "Boolean.valueOf expects one boolean" };
+			}
+			auto object = java.allocateObject(klass);
+			if (!object.ok())
+			{
+				return object.error();
+			}
+			auto written = java.writeInstanceField(object.value(), value_field, call.args[0]);
+			if (!written.ok())
+			{
+				return written.error();
+			}
+			return object.value();
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	return declare(world, klass, "booleanValue", "()Z", false,
+		[value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			return java.readInstanceField(call.receiver, value_field);
+		});
+}
+
+Result<void> installLong(JavaWorld &world)
+{
+	auto declared = world.declareClass("java/lang/Long", "java/lang/Number");
+	if (!declared.ok())
+	{
+		return declared.error();
+	}
+	const uint64_t klass = declared.value();
+	auto value = world.declareField(klass, "value", "J", false);
+	if (!value.ok())
+	{
+		return value.error();
+	}
+	const uint64_t value_field = value.value();
+
+	auto result = declare(world, klass, "<init>", "(J)V", false,
+		[value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			if (call.args.size() != 1)
+			{
+				return Error{ ErrorCode::InvalidArgument, "Long.<init> expects one long" };
+			}
+			auto written = java.writeInstanceField(call.receiver, value_field, call.args[0]);
+			if (!written.ok())
+			{
+				return written.error();
+			}
+			return uint64_t{ 0 };
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	result = declare(world, klass, "valueOf", "(J)Ljava/lang/Long;", true,
+		[klass, value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			if (call.args.size() != 1)
+			{
+				return Error{ ErrorCode::InvalidArgument, "Long.valueOf expects one long" };
+			}
+			auto object = java.allocateObject(klass);
+			if (!object.ok())
+			{
+				return object.error();
+			}
+			auto written = java.writeInstanceField(object.value(), value_field, call.args[0]);
+			if (!written.ok())
+			{
+				return written.error();
+			}
+			return object.value();
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	return declare(world, klass, "longValue", "()J", false,
+		[value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			return java.readInstanceField(call.receiver, value_field);
 		});
 }
 
@@ -311,7 +535,7 @@ Result<void> installInteger(JavaWorld &world)
 	}
 	const uint64_t value_field = value.value();
 
-	return declare(world, klass, "<init>", "(I)V", false,
+	auto result = declare(world, klass, "<init>", "(I)V", false,
 		[value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
 			if (call.args.size() != 1)
 			{
@@ -325,6 +549,38 @@ Result<void> installInteger(JavaWorld &world)
 				return written.error();
 			}
 			return uint64_t{ 0 };
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	result = declare(world, klass, "valueOf", "(I)Ljava/lang/Integer;", true,
+		[klass, value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			if (call.args.size() != 1)
+			{
+				return Error{ ErrorCode::InvalidArgument,
+					"Integer.valueOf expects one int" };
+			}
+			auto object = java.allocateObject(klass);
+			if (!object.ok())
+			{
+				return object.error();
+			}
+			auto written =
+				java.writeInstanceField(object.value(), value_field, call.args[0]);
+			if (!written.ok())
+			{
+				return written.error();
+			}
+			return object.value();
+		});
+	if (!result.ok())
+	{
+		return result;
+	}
+	return declare(world, klass, "intValue", "()I", false,
+		[value_field](JavaWorld &java, InvokeContext &call) -> Result<uint64_t> {
+			return java.readInstanceField(call.receiver, value_field);
 		});
 }
 
@@ -350,6 +606,41 @@ Result<int32_t> integerValue(JavaWorld &world, uint64_t object)
 	return static_cast<int32_t>(value.value());
 }
 
+Result<bool> booleanValue(JavaWorld &world, uint64_t object)
+{
+	const uint64_t klass = world.findClass("java/lang/Boolean");
+	const uint64_t field = klass == 0 ? 0 : world.findField(klass, "value", "Z", false);
+	if (field == 0)
+	{
+		return Error{ ErrorCode::NotFound, "java/lang/Boolean is not installed" };
+	}
+	if (!world.isInstanceOf(object, klass))
+	{
+		return Error{ ErrorCode::InvalidArgument, "the object is not a java.lang.Boolean" };
+	}
+	auto value = world.readInstanceField(object, field);
+	if (!value.ok())
+	{
+		return value.error();
+	}
+	return value.value() != 0;
+}
+
+Result<uint64_t> longValue(JavaWorld &world, uint64_t object)
+{
+	const uint64_t klass = world.findClass("java/lang/Long");
+	const uint64_t field = klass == 0 ? 0 : world.findField(klass, "value", "J", false);
+	if (field == 0)
+	{
+		return Error{ ErrorCode::NotFound, "java/lang/Long is not installed" };
+	}
+	if (!world.isInstanceOf(object, klass))
+	{
+		return Error{ ErrorCode::InvalidArgument, "the object is not a java.lang.Long" };
+	}
+	return world.readInstanceField(object, field);
+}
+
 Result<void> installJavaLang(JavaWorld &world)
 {
 	const auto installers = {
@@ -357,8 +648,11 @@ Result<void> installJavaLang(JavaWorld &world)
 		installClass,
 		installString,
 		installSystem,
+		installThread,
 		installNumber,
 		installInteger,
+		installBoolean,
+		installLong,
 	};
 	for (const auto installer : installers)
 	{
