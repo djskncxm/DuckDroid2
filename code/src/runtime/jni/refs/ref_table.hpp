@@ -17,6 +17,16 @@ namespace duckemu::runtime::jni
 
 class JniArena;
 
+// GetObjectRefType's answer. The values are part of the JNI contract
+// (jobjectRefType); invalid covers deleted and unknown handles.
+enum class RefType : uint32_t
+{
+	Invalid = 0,
+	Local = 1,
+	Global = 2,
+	WeakGlobal = 3,
+};
+
 // JNI references. A handle is the guest address of an 8-byte cell holding the
 // object address; the cell is the guest-visible value, the object table stays
 // host-side. Local references belong to one guest thread (keyed by TPIDR_EL0);
@@ -33,6 +43,9 @@ class RefTable
 
 	// Object address behind a handle, or 0 for null/deleted/unknown handles.
 	[[nodiscard]] uint64_t resolve(uint64_t handle) const;
+
+	// Which kind of reference a live handle is (GetObjectRefType).
+	[[nodiscard]] RefType typeOf(uint64_t handle) const;
 
 	bool deleteLocal(uint64_t thread_key, uint64_t handle);
 	bool deleteGlobal(uint64_t handle);

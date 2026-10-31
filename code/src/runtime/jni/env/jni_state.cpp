@@ -456,6 +456,9 @@ int64_t JniState::invokeEnv(uint32_t slot, HostCallArgs &args)
 	case JniSlotNewLocalRef:
 		return local(refs_.resolve(args.x[1]));
 
+	case JniSlotGetObjectRefType:
+		return static_cast<int64_t>(refs_.typeOf(args.x[1]));
+
 	case JniSlotEnsureLocalCapacity:
 		return kJniOk;
 

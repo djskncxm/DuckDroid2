@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "runtime/jni/refs/ref_table.hpp"
 
+#include <algorithm>
+
 #include "runtime/jni/world/java_world.hpp"
 #include "runtime/memory/address_space.hpp"
 
@@ -67,6 +69,27 @@ uint64_t RefTable::resolve(uint64_t handle) const
 	uint64_t object = 0;
 	auto read = memory_.read(GuestVA{ handle }, &object, sizeof(object));
 	return read.ok() ? object : 0;
+}
+
+RefType RefTable::typeOf(uint64_t handle) const
+{
+	if (resolve(handle) == 0)
+	{
+		return RefType::Invalid;
+	}
+	if (std::find(globals_.begin(), globals_.end(), handle) != globals_.end())
+	{
+		return RefType::Global;
+	}
+	for (const auto &entry : threads_)
+	{
+		if (std::find(entry.second.handles.begin(), entry.second.handles.end(), handle) !=
+			entry.second.handles.end())
+		{
+			return RefType::Local;
+		}
+	}
+	return RefType::Invalid;
 }
 
 bool RefTable::deleteLocal(uint64_t thread_key, uint64_t handle)
