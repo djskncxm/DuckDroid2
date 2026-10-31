@@ -470,6 +470,22 @@ add_test(NAME 07f_szstone_plugin COMMAND 07f_szstone_plugin)
 set_tests_properties(07f_szstone_plugin PROPERTIES TIMEOUT 240)
 duckemu_set_warnings(07f_szstone_plugin)
 
+# The Douyin target through the same seam: default instance-host configuration
+# (including the 5 s per-call timeout), injected clock and random seed. Two
+# fresh instances must produce the same stable headers, and the strict Java
+# world must report nothing but the MS.a()V probe the APK itself also misses.
+add_executable(07g_dy7_plugin integration/07g_dy7_plugin.cpp)
+target_link_libraries(07g_dy7_plugin PRIVATE
+  duckemu_runtime duckemu_test_support duckemu_user_registry)
+target_compile_definitions(07g_dy7_plugin PRIVATE
+  DUCKEMU_ROM_BOOTSTRAP="${DUCKEMU_ROM_BOOTSTRAP}"
+  DUCKEMU_ROM_LIB64="${DUCKEMU_ROM_LIB64}"
+  DUCKEMU_DY7_SO="${CMAKE_CURRENT_SOURCE_DIR}/../user_code/dy7_case/assets/libmetasec_ml.so"
+  DUCKEMU_DY7_PROPERTIES="${CMAKE_CURRENT_SOURCE_DIR}/../user_code/dy7_case/dy7.properties")
+add_test(NAME 07g_dy7_plugin COMMAND 07g_dy7_plugin)
+set_tests_properties(07g_dy7_plugin PROPERTIES TIMEOUT 300)
+duckemu_set_warnings(07g_dy7_plugin)
+
 add_executable(jni_world_test unit/runtime/jni_world_test.cpp)
 target_link_libraries(jni_world_test PRIVATE duckemu_runtime duckemu_test_support)
 add_test(NAME jni_world_test COMMAND jni_world_test)
