@@ -33,6 +33,7 @@ constexpr uint64_t kRandomBytes = 32;
 constexpr uint64_t kNameSize = 16;
 constexpr uint64_t kPathSize = 0x100;
 
+constexpr uint64_t kClockRealtime = 0;
 constexpr uint64_t kClockMonotonic = 1;
 constexpr uint64_t kClockProcessCputime = 2;
 constexpr uint64_t kClockRealtimeCoarse = 5;
@@ -41,9 +42,16 @@ constexpr uint64_t kClockInvalid = 99;
 constexpr uint64_t kRlimitNoFile = 7;
 constexpr uint64_t kPrGetName = 16;
 constexpr uint64_t kPrSetTaggedAddrCtrl = 55;
+constexpr uint64_t kTcgets = 0x5401;
+constexpr uint64_t kAtFdcwd = static_cast<uint64_t>(-100);
+constexpr uint64_t kSleepNs = 5000000ULL;
+constexpr int kSigrtmax = 64;
 
 constexpr int kEsrch = 3;
+constexpr int kEbadf = 9;
+constexpr int kEfault = 14;
 constexpr int kEinval = 22;
+constexpr int kEnotty = 25;
 
 struct Functions {
     GuestVA getpid;
@@ -55,12 +63,20 @@ struct Functions {
     GuestVA getcwd;
     GuestVA gettimeofday;
     GuestVA clock_gettime;
+    GuestVA nanosleep;
+    GuestVA clock_nanosleep;
     GuestVA getrandom;
     GuestVA prctl;
     GuestVA sched_getaffinity;
     GuestVA sched_yield;
     GuestVA sigaltstack;
     GuestVA getrlimit;
+    GuestVA isatty;
+    GuestVA ioctl;
+    GuestVA kill;
+    GuestVA raise;
+    GuestVA openat;
+    GuestVA close;
     GuestVA errno_fn;
 };
 
@@ -79,6 +95,12 @@ bool readGuest(RuntimeInstance& instance, uint64_t address, void* buffer, uint64
     auto read = instance.readMemory(GuestVA{ address }, buffer, size);
     CHECK_RESULT(read);
     return read.ok();
+}
+
+bool writeGuest(RuntimeInstance& instance, uint64_t address, const void* buffer, uint64_t size) {
+    auto written = instance.writeMemory(GuestVA{ address }, buffer, size);
+    CHECK_RESULT(written);
+    return written.ok();
 }
 
 // int-returning libc wrappers only define w0 on failure (-1 arrives as
@@ -124,12 +146,20 @@ int main() {
         { "getcwd", &functions.getcwd },
         { "gettimeofday", &functions.gettimeofday },
         { "clock_gettime", &functions.clock_gettime },
+        { "nanosleep", &functions.nanosleep },
+        { "clock_nanosleep", &functions.clock_nanosleep },
         { "getrandom", &functions.getrandom },
         { "prctl", &functions.prctl },
         { "sched_getaffinity", &functions.sched_getaffinity },
         { "sched_yield", &functions.sched_yield },
         { "sigaltstack", &functions.sigaltstack },
         { "getrlimit", &functions.getrlimit },
+        { "isatty", &functions.isatty },
+        { "ioctl", &functions.ioctl },
+        { "kill", &functions.kill },
+        { "raise", &functions.raise },
+        { "openat", &functions.openat },
+        { "close", &functions.close },
         { "__errno", &functions.errno_fn },
     };
     for (const auto& lookup : lookups) {
@@ -156,6 +186,10 @@ int main() {
     const uint64_t random_buffer = scratch + 0x1A0;
     const uint64_t name_buffer = scratch + 0x1C0;
     const uint64_t path_buffer = scratch + 0x200;
+    const uint64_t sleep_request = scratch + 0x400;
+    const uint64_t sleep_remainder = scratch + 0x420;
+    const uint64_t ioctl_buffer = scratch + 0x440;
+    const uint64_t dev_null_path = scratch + 0x460;
 
     // __errno() is the libc accessor; its value is the guest errno slot.
     const uint64_t errno_address = callGuest(instance, functions.errno_fn, {});
@@ -227,6 +261,65 @@ int main() {
                            { kClockInvalid, timespec_buffer })));
     CHECK_EQ(guestErrno(), kEinval);
 
+    // Sleeps are virtual (DuckDroid's AdvanceSleep): the instance clock moves
+    // forward by the requested duration and the guest thread keeps running.
+    // Inject both clocks so the exact advance is observable.
+    instance.setWallTimeNs(1792886400000000000ULL);
+    instance.setMonotonicTimeNs(9000000000ULL);
+    const auto clockNs = [&](uint64_t clock_id) -> uint64_t {
+        CHECK_EQ(callGuest(instance, functions.clock_gettime, { clock_id, timespec_buffer }), 0);
+        int64_t values[2] = {};
+        readGuest(instance, timespec_buffer, values, sizeof(values));
+        return static_cast<uint64_t>(values[0]) * 1000000000ULL +
+               static_cast<uint64_t>(values[1]);
+    };
+    const auto writeTimespec = [&](uint64_t address, int64_t seconds, int64_t nanoseconds) {
+        const int64_t values[2] = { seconds, nanoseconds };
+        return writeGuest(instance, address, values, sizeof(values));
+    };
+
+    // nanosleep: the remainder is cleared, and the monotonic clock advances by
+    // the duration. The clock read itself advances the injected clock 1 ms, so
+    // the observed difference is duration + 1 ms.
+    {
+        const uint64_t before = clockNs(kClockMonotonic);
+        CHECK(writeTimespec(sleep_request, 0, static_cast<int64_t>(kSleepNs)));
+        const int64_t stale[2] = { -1, -1 };
+        writeGuest(instance, sleep_remainder, stale, sizeof(stale));
+        CHECK_EQ(callGuest(instance, functions.nanosleep, { sleep_request, sleep_remainder }), 0);
+        CHECK_EQ(clockNs(kClockMonotonic) - before, kSleepNs + 1000000ULL);
+        int64_t remainder[2] = { 1, 1 };
+        readGuest(instance, sleep_remainder, remainder, sizeof(remainder));
+        CHECK_EQ(remainder[0], 0);
+        CHECK_EQ(remainder[1], 0);
+    }
+
+    // The wall clock absorbs the same duration.
+    {
+        const uint64_t before = clockNs(kClockRealtime);
+        CHECK(writeTimespec(sleep_request, 0, static_cast<int64_t>(kSleepNs)));
+        CHECK_EQ(callGuest(instance, functions.nanosleep, { sleep_request, 0 }), 0);
+        CHECK_EQ(clockNs(kClockRealtime) - before, kSleepNs + 1000000ULL);
+    }
+
+    // clock_nanosleep shares the mechanism (relative form; TIMER_ABSTIME is
+    // not modelled, matching the reference engine).
+    {
+        const uint64_t before = clockNs(kClockMonotonic);
+        CHECK(writeTimespec(sleep_request, 0, static_cast<int64_t>(kSleepNs)));
+        CHECK_EQ(callGuest(instance, functions.clock_nanosleep,
+                           { kClockMonotonic, 0, sleep_request, sleep_remainder }),
+                 0);
+        CHECK_EQ(clockNs(kClockMonotonic) - before, kSleepNs + 1000000ULL);
+    }
+
+    // Out-of-range tv_nsec is EINVAL; an unmapped request is EFAULT.
+    CHECK(writeTimespec(sleep_request, 0, 1000000000));
+    CHECK(failed(callGuest(instance, functions.nanosleep, { sleep_request, 0 })));
+    CHECK_EQ(guestErrno(), kEinval);
+    CHECK(failed(callGuest(instance, functions.nanosleep, { 0, 0 })));
+    CHECK_EQ(guestErrno(), kEfault);
+
     // getrandom: full fill, not all zero.
     CHECK_EQ(callGuest(instance, functions.getrandom, { random_buffer, kRandomBytes, 0 }),
              kRandomBytes);
@@ -276,6 +369,30 @@ int main() {
         CHECK(limits[0] > 0);
         CHECK(limits[1] >= limits[0]);
     }
+
+    // No signal delivery: kill/tkill/tgkill answer 0 (DuckDroid parity), so a
+    // target probing the signal round trip continues on its normal path.
+    CHECK_EQ(callGuest(instance, functions.kill, { kPid, kSigrtmax }), 0);
+    CHECK_EQ(callGuest(instance, functions.raise, { kSigrtmax }), 0);
+
+    // ioctl: host stdio and open guest descriptors answer ENOTTY (no tty
+    // model); an unopened descriptor answers EBADF. isatty() needs exactly
+    // this to report "not a terminal".
+    CHECK(failed(callGuest(instance, functions.ioctl, { 0, kTcgets, ioctl_buffer })));
+    CHECK_EQ(guestErrno(), kEnotty);
+    CHECK(failed(callGuest(instance, functions.ioctl, { 9999, kTcgets, ioctl_buffer })));
+    CHECK_EQ(guestErrno(), kEbadf);
+    CHECK_EQ(callGuest(instance, functions.isatty, { 0 }), 0);
+
+    const char dev_null[] = "/dev/null";
+    writeGuest(instance, dev_null_path, dev_null, sizeof(dev_null));
+    const uint64_t null_fd = callGuest(instance, functions.openat,
+                                       { kAtFdcwd, dev_null_path, 0, 0 });
+    CHECK(null_fd >= 3);
+    CHECK(failed(callGuest(instance, functions.ioctl, { null_fd, kTcgets, ioctl_buffer })));
+    CHECK_EQ(guestErrno(), kEnotty);
+    CHECK_EQ(callGuest(instance, functions.isatty, { null_fd }), 0);
+    CHECK_EQ(callGuest(instance, functions.close, { null_fd }), 0);
 
     return test::finish("04c_syscalls");
 }

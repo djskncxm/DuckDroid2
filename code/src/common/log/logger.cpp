@@ -12,7 +12,10 @@
 namespace duckemu::log {
 namespace {
 
-std::atomic<Level> g_level{Level::Info};
+// Warnings are diagnostics for pack maintainers; the shipped binaries keep
+// stderr for errors only. A debugger can raise this back to Info/Warn with
+// set_level() before creating the instance.
+std::atomic<Level> g_level{Level::Error};
 std::mutex g_mutex;
 
 const char* level_name(Level level) noexcept {

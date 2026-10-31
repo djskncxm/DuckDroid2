@@ -85,6 +85,7 @@ char *god7(const char *url, const char *headers);
 | `DY_COOKIE` | 没有 `DY_HEADERS` 时拼成 `cookie\r\n<value>\r\n` | 内置 cookie |
 | `DY_PROPS_FILE` | 回放整份 `getprop`（支持 `key=value` 与 `[key]: [value]`） | `dy7.properties` |
 | `DY_PRINT_HEADERS` | 额外按名字打印每个头 | 未设置 |
+| `DY_JNI_EVENTS` | 把严格 Java 世界的缺失事件逐条打到 stderr | 未设置 |
 
 runner 另有命令行参数 `--repeat N`、`--wall-time-ns N`、`--monotonic-time-ns N`、
 `--random-seed N`、`--print-headers`、`--trace DIR`。
@@ -114,12 +115,14 @@ ro.build.fingerprint=Xiaomi/dipper/dipper:8.1.0/OPM1.171019.011/V9.5.5.0.OEAMIFA
 
 ## 已知事件与差距
 
-- `GetStaticMethodID(MS, "a", "()V")` 在严格模式下会报一次
+- `GetStaticMethodID(MS, "a", "()V")` 在严格模式下会记录一次
   `missing-method`：APK 里确实没有这个方法（`MS` 空，`MS0` 只有
   `Bill/Louis/Zeoy/Francies`，`k3` 只有长签名的 `a/c/b`），真机上同样会抛
   `NoSuchMethodError`；native 探测后继续，不影响输出。gate 只允许这一条事件。
-- `tgkill` / `nanosleep` / `ioctl(TCGETS)` 仍未实现（ioctl 按路线图明确不做），
-  native 收到 `-ENOSYS` 后继续，实测不影响签名；出现 `unsupported` 日志属预期。
+  默认日志级别是 Error，stderr 不输出；需要看时设 `DY_JNI_EVENTS=1`。
+- `tgkill` / `nanosleep` / `ioctl(TCGETS)` 已按 DuckDroid 语义实现
+  （信号返回 0、睡眠推进实例时钟、ioctl 对非 tty 返回 `ENOTTY`），见
+  `docs/devlogs/2026-10-31-32-抖音错误面清理.md`。
 - 全模块指令级 trace 一次签名约 3.6 GB `code.log` + 3.9 GB `rw.log`，
   跑 `--trace` 时注意目标盘容量。
 

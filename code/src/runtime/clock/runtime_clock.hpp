@@ -23,6 +23,11 @@ class RuntimeClock
 	[[nodiscard]] uint64_t nextRealtimeNs();
 	[[nodiscard]] uint64_t nextMonotonicNs();
 
+	// DuckDroid's AdvanceSleep: a guest sleep is not a real sleep. Injected
+	// clocks move forward by the requested duration; host clocks keep a
+	// sleep offset so the guest never sees less time pass than it asked for.
+	void advanceSleep(uint64_t ns);
+
 	void setWallTimeNs(uint64_t ns);
 	void setMonotonicTimeNs(uint64_t ns);
 	void useHostWallClock();
@@ -56,6 +61,9 @@ class RuntimeClock
 	bool monotonic_injected_ = false;
 	uint64_t wall_ns_ = 0;
 	uint64_t monotonic_ns_ = 0;
+	// Only used in host mode; injected clocks absorb the sleep directly.
+	uint64_t wall_sleep_offset_ns_ = 0;
+	uint64_t monotonic_sleep_offset_ns_ = 0;
 };
 
 } // namespace duckemu::runtime

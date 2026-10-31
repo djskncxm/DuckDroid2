@@ -20,6 +20,7 @@
 
 #include "runtime/instance/runtime_instance.hpp"
 #include "runtime/observer/semantic/jni_event.hpp"
+#include "runtime/observer/semantic/svc_event.hpp"
 #include "support/test_harness.hpp"
 #include "worker/app/app_plugin.hpp"
 
@@ -64,6 +65,9 @@ struct Outcome
 	std::string argus;
 	std::string khronos;
 	std::vector<JniEventShape> events;
+	// The runtime reports every syscall/host stub the packs do not serve.
+	// Metasec's setup and sign path must not need one.
+	std::vector<std::string> unsupported;
 };
 
 // The APK has no MS.a()V; the native probes for it from its own worker thread,
@@ -106,6 +110,12 @@ bool runOnce(const worker::AppContext &context, Outcome *outcome, std::string *e
 	instance.addJniListener([outcome](const runtime::observer::JniEvent &event) {
 		outcome->events.push_back(
 			JniEventShape{ event.kind, event.class_descriptor, event.name, event.signature });
+	});
+	instance.addSvcListener([outcome](const runtime::observer::SvcEvent &event) {
+		if (!event.supported)
+		{
+			outcome->unsupported.push_back(event.name);
+		}
 	});
 
 	auto plugin = worker::make_app_plugin(context);
@@ -180,6 +190,14 @@ int main()
 			event.name.c_str(), event.signature.c_str());
 	}
 
+	// The runtime side is equally strict: metasec's setup and sign must not
+	// need an unimplemented syscall (tgkill/nanosleep/ioctl are modelled).
+	CHECK(first.unsupported.empty());
+	for (const std::string &name : first.unsupported)
+	{
+		std::fprintf(stderr, "  unsupported svc %s\n", name.c_str());
+	}
+
 	// Same clock in a fresh instance: the stable headers must be identical.
 	Outcome second;
 	if (!runOnce(context, &second, &error))
@@ -191,6 +209,7 @@ int main()
 	CHECK(second.khronos == first.khronos);
 	CHECK(!second.sign.empty());
 	CHECK(onlyExpectedProbe(second));
+	CHECK(second.unsupported.empty());
 
 	return test::finish("07g_dy7_plugin");
 }

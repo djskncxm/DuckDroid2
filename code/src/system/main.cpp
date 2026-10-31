@@ -219,7 +219,7 @@ bool ParseApp(const std::string &spec, duckemu::system::WorkerSpec *worker, std:
 
 int main(int argc, char **argv)
 {
-	duckemu::log::set_level(duckemu::log::Level::Info);
+	duckemu::log::set_level(duckemu::log::Level::Error);
 
 	duckemu::system::SystemConfig config;
 	std::string worker_executable;

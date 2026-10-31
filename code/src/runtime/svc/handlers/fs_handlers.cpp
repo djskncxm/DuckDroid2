@@ -596,6 +596,15 @@ bool fdIsOpen(SyscallContext &ctx, uint64_t fd)
 	return fd <= 2 || ctx.vfs.find(fd) != nullptr;
 }
 
+// No descriptor kind models ioctls (route item #8), so the answer is the one
+// the kernel gives for a regular file or pipe: ENOTTY. This is a real result,
+// not a gap: isatty()/tcgetattr() depend on it. An unknown descriptor is
+// EBADF (DuckDroid's VirtualFileSystem::Ioctl).
+int64_t sysIoctl(SyscallContext &ctx)
+{
+	return fdIsOpen(ctx, ctx.args[0]) ? kError(kEnotty) : kError(kEbadf);
+}
+
 int64_t sysFcntl(SyscallContext &ctx)
 {
 	const uint64_t fd = ctx.args[0];
@@ -710,6 +719,8 @@ std::optional<int64_t> handleFsSyscall(SyscallContext &ctx, uint32_t number)
 		return sysDup3(ctx);
 	case kSysFcntl:
 		return sysFcntl(ctx);
+	case kSysIoctl:
+		return sysIoctl(ctx);
 	case kSysUnlinkat:
 		return sysUnlinkat(ctx);
 	case kSysRenameat:

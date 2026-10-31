@@ -189,13 +189,18 @@ int main(int argc, char **argv)
 	}
 
 	// Strict Java world: anything libmetasec asks for and the packs did not
-	// declare shows up here instead of silently returning a default.
-	instance.addJniListener([](const observer::JniEvent &event) {
-		std::fprintf(stderr, "jni %s class=%s name=%s sig=%s slot=%u tid=%u\n",
-			std::string(observer::jniEventKindName(event.kind)).c_str(),
-			event.class_descriptor.c_str(), event.name.c_str(),
-			event.signature.c_str(), event.slot, event.tid);
-	});
+	// declare is recorded by the runtime. The shipped log level is Error, so
+	// this runner does not repeat it on stderr unless DY_JNI_EVENTS asks for
+	// the per-event dump while debugging a pack.
+	if (std::getenv("DY_JNI_EVENTS") != nullptr)
+	{
+		instance.addJniListener([](const observer::JniEvent &event) {
+			std::fprintf(stderr, "jni %s class=%s name=%s sig=%s slot=%u tid=%u\n",
+				std::string(observer::jniEventKindName(event.kind)).c_str(),
+				event.class_descriptor.c_str(), event.name.c_str(),
+				event.signature.c_str(), event.slot, event.tid);
+		});
+	}
 
 	auto libc = instance.loadLibrary(romLibc());
 	if (!libc.ok())

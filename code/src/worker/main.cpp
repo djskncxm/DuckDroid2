@@ -386,7 +386,7 @@ int RunSupervisor(const Arguments &arguments)
 
 int main(int argc, char **argv)
 {
-	duckemu::log::set_level(duckemu::log::Level::Info);
+	duckemu::log::set_level(duckemu::log::Level::Error);
 
 	Arguments arguments;
 	if (!ParseArguments(argc, argv, &arguments) || !Validate(arguments))

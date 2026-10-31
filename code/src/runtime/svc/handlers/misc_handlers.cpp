@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string_view>
 
 #include "runtime/clock/runtime_clock.hpp"
@@ -227,6 +228,105 @@ int64_t sysGettimeofday(SyscallContext &ctx)
 	return writeArray(ctx, timezone, zero, 2);
 }
 
+// A struct timespec in guest memory: tv_sec at +0, tv_nsec at +8.
+bool readTimespec(SyscallContext &ctx, uint64_t address, int64_t *seconds, int64_t *nanoseconds)
+{
+	return ctx.memory.read(GuestVA{ address }, seconds, sizeof(*seconds)).ok() &&
+	       ctx.memory.read(GuestVA{ address + 8 }, nanoseconds, sizeof(*nanoseconds)).ok();
+}
+
+// Negative or out-of-range fields are EINVAL, and the seconds-to-nanoseconds
+// multiply must not wrap (same parsing as DuckDroid's nanosleep).
+std::optional<uint64_t> timespecToNanoseconds(int64_t seconds, int64_t nanoseconds)
+{
+	constexpr uint64_t kNanosecondsPerSecond = 1000000000ULL;
+	if (seconds < 0 || nanoseconds < 0 || nanoseconds >= static_cast<int64_t>(kNanosecondsPerSecond))
+	{
+		return std::nullopt;
+	}
+	const uint64_t whole_seconds = static_cast<uint64_t>(seconds);
+	if (whole_seconds > std::numeric_limits<uint64_t>::max() / kNanosecondsPerSecond)
+	{
+		return std::nullopt;
+	}
+	const uint64_t seconds_ns = whole_seconds * kNanosecondsPerSecond;
+	const uint64_t total = seconds_ns + static_cast<uint64_t>(nanoseconds);
+	if (total < seconds_ns)
+	{
+		return std::nullopt;
+	}
+	return total;
+}
+
+int64_t clearRemainder(SyscallContext &ctx, uint64_t address)
+{
+	if (address == 0)
+	{
+		return 0;
+	}
+	const int64_t zero[2] = { 0, 0 };
+	auto written = ctx.memory.write(GuestVA{ address }, zero, sizeof(zero));
+	return written.ok() ? 0 : -kEfault;
+}
+
+// The guest sleep is virtual (DuckDroid parity): the clock moves forward by
+// the requested duration and the thread keeps running. Under an injected
+// clock this keeps a replay reproducible without real waits.
+int64_t sysNanosleep(SyscallContext &ctx)
+{
+	int64_t seconds = 0;
+	int64_t nanoseconds = 0;
+	if (!readTimespec(ctx, ctx.args[0], &seconds, &nanoseconds))
+	{
+		return -kEfault;
+	}
+	const auto duration = timespecToNanoseconds(seconds, nanoseconds);
+	if (!duration.has_value())
+	{
+		return -kEinval;
+	}
+	const int64_t cleared = clearRemainder(ctx, ctx.args[1]);
+	if (cleared != 0)
+	{
+		return cleared;
+	}
+	ctx.clock.advanceSleep(duration.value());
+	return 0;
+}
+
+// DuckDroid treats clock_nanosleep as a relative sleep: clockid and
+// TIMER_ABSTIME are ignored. No target in this tree uses the absolute form.
+int64_t sysClockNanosleep(SyscallContext &ctx)
+{
+	int64_t seconds = 0;
+	int64_t nanoseconds = 0;
+	if (!readTimespec(ctx, ctx.args[2], &seconds, &nanoseconds))
+	{
+		return -kEfault;
+	}
+	const auto duration = timespecToNanoseconds(seconds, nanoseconds);
+	if (!duration.has_value())
+	{
+		return -kEinval;
+	}
+	const int64_t cleared = clearRemainder(ctx, ctx.args[3]);
+	if (cleared != 0)
+	{
+		return cleared;
+	}
+	ctx.clock.advanceSleep(duration.value());
+	return 0;
+}
+
+// No signal delivery: sigaction/sigprocmask are accepted and forgotten, so a
+// raised signal cannot reach a handler. DuckDroid answers these with 0;
+// metasec probes tgkill(getpid(), gettid(), SIGRTMAX) and takes a fallback
+// path when the call fails.
+int64_t sysRaiseSignal(SyscallContext &)
+{
+	return 0;
+}
+
 int64_t sysUname(SyscallContext &ctx)
 {
 	constexpr uint64_t kFieldSize = 65;
@@ -307,6 +407,14 @@ std::optional<int64_t> handleMiscSyscall(SyscallContext &ctx, uint32_t number)
 		return sysGetrandom(ctx);
 	case kSysClockGettime:
 		return sysClockGettime(ctx);
+	case kSysNanosleep:
+		return sysNanosleep(ctx);
+	case kSysClockNanosleep:
+		return sysClockNanosleep(ctx);
+	case kSysKill:
+	case kSysTkill:
+	case kSysTgkill:
+		return sysRaiseSignal(ctx);
 	case kSysGettimeofday:
 		return sysGettimeofday(ctx);
 	case kSysUname:
