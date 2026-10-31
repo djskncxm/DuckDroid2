@@ -36,9 +36,13 @@ class ThreadSystem
 	// Returns the new tid in the parent, or a negative errno.
 	virtual int64_t cloneThread(RuntimeThread &parent, const CloneRequest &request) = 0;
 
+	// Parks the thread on the futex word until woken or, when timeout_us is
+	// non-zero, until the relative deadline. The syscall layer owns the
+	// timespec semantics: FUTEX_WAIT carries a relative one, FUTEX_WAIT_BITSET
+	// an absolute one on the instance clock.
 	// Returns 0 / -EAGAIN / -ENOSYS / -EFAULT. Blocks the thread on success by
 	// setting its state and letting the dispatcher stop the engine.
-	virtual int64_t futexWait(RuntimeThread &thread, GuestVA uaddr, uint32_t expected, uint64_t timeout_address) = 0;
+	virtual int64_t futexWait(RuntimeThread &thread, GuestVA uaddr, uint32_t expected, uint64_t timeout_us) = 0;
 	virtual int64_t futexWake(GuestVA uaddr, int32_t count) = 0;
 
 	// Parks `thread` on `pending` (state Blocked) until wakeThread() or, when

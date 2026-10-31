@@ -742,32 +742,8 @@ int64_t ThreadScheduler::cloneThread(RuntimeThread &parent, const CloneRequest &
 int64_t ThreadScheduler::futexWait(RuntimeThread &thread,
 	GuestVA uaddr,
 	uint32_t expected,
-	uint64_t timeout_address)
+	uint64_t timeout_us)
 {
-	// A relative struct timespec: tv_sec at +0, tv_nsec at +8.
-	uint64_t timeout_us = 0;
-	if (timeout_address != 0)
-	{
-		int64_t seconds = 0;
-		int64_t nanoseconds = 0;
-		if (!memory_.read(GuestVA{ timeout_address }, &seconds, sizeof(seconds)).ok() ||
-		    !memory_.read(GuestVA{ timeout_address + 8 }, &nanoseconds, sizeof(nanoseconds)).ok())
-		{
-			return svc::kError(svc::kEfault);
-		}
-		if (seconds < 0 || nanoseconds < 0 || nanoseconds >= 1000000000LL)
-		{
-			return svc::kError(svc::kEinval);
-		}
-		// Rounded up: a sub-microsecond wait still expires, and 0 means "no
-		// deadline" to the parking code.
-		timeout_us = static_cast<uint64_t>(seconds) * 1000000ULL +
-			     static_cast<uint64_t>((nanoseconds + 999) / 1000);
-		if (timeout_us == 0)
-		{
-			timeout_us = 1;
-		}
-	}
 	auto value = memory_.readU32(uaddr);
 	if (!value.ok())
 	{

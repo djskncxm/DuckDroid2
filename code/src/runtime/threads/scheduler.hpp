@@ -99,7 +99,7 @@ class ThreadScheduler final : public ThreadSystem
 
 	// ThreadSystem
 	int64_t cloneThread(RuntimeThread &parent, const CloneRequest &request) override;
-	int64_t futexWait(RuntimeThread &thread, GuestVA uaddr, uint32_t expected, uint64_t timeout_address) override;
+	int64_t futexWait(RuntimeThread &thread, GuestVA uaddr, uint32_t expected, uint64_t timeout_us) override;
 	int64_t futexWake(GuestVA uaddr, int32_t count) override;
 	int64_t parkThread(RuntimeThread &thread,
 		std::unique_ptr<PendingSyscall> pending,
