@@ -330,3 +330,26 @@ cmake --build build --target duckemu_szstone_case
 ./build/user_code/duckemu_szstone_case --random-seed 7 \
   --wall-time-ns 1792886400000000000 --monotonic-time-ns 1000000000
 ```
+
+`dy7_case/` 是 native 走类层级 + Java 回调的目标：
+
+```text
+dy7_case/
+├── dy7_env.hpp/.cpp       # MS -> MS0 -> k3、k3 的 native 与 null 回调、Context
+├── dy7_case.hpp/.cpp      # metasec 初始化序列 + god7 调用
+├── main.cpp               # 加载 libc/libmetasec_ml → 初始化 → 签名
+├── plugin.hpp/.cpp        # worker 适配，app id dy7
+├── dy7.properties         # Mi 8 / API 32 属性画像
+└── assets/libmetasec_ml.so
+```
+
+`String.getBytes`、`System.getProperty`、`Thread`、`Boolean`/`Long`/`Integer`
+的 boxing 全部在平台包；项目只声明 `com/bytedance/mobsec/metasec/ml/MS` 这一族
+类层级和 `Context` 的设备值。native 沿 `FindClass`/`GetSuperclass` 走到
+`ms/bd/c/k3` 再 `RegisterNatives`，所以层级必须用 `declareClass(desc, super)`
+按 k3 → MS0 → MS 的顺序建立。
+
+```bash
+cmake --build build --target duckemu_dy7_case
+DY_WALL_TIME_MS=1792886400000 ./build/user_code/duckemu_dy7_case --print-headers
+```

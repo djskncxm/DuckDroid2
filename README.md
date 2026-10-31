@@ -219,8 +219,8 @@ code/
 ├── src/worker/              # Worker supervisor、实例进程、AppPlugin
 ├── src/system/              # UDS 网关、WorkerPool
 ├── src/web/                 # FastAPI 最小 HTTP 案例
-├── user_code/               # 目标项目（libeleven_case、jdgs_case、szstone_case）与注册表
-├── tests/                   # integration + unit（45 个）
+├── user_code/               # 目标项目（libeleven_case、jdgs_case、szstone_case、dy7_case）与注册表
+├── tests/                   # integration + unit（49 个）
 ├── tools/spike/             # M0 的 Unicorn 九条探针
 ├── tools/trace_viewer/      # svc.log 查看器
 └── tools/sign_client/       # UDS 客户端与压测
@@ -298,7 +298,8 @@ cmake --build build-trace -j"$(nproc)"
 - JNI：`05_jni_env`、`05_jni_stub`、`05_jni_arrays`、`05_jni_real`
 - 时钟：`06_clock_injection`
 - 服务化：`07a_instance_host`、`07b_worker_supervisor`、`07c_system_gateway`、
-  `07d_session_reset`、`07_end_to_end`、`07e_jdgs_plugin`、`07f_szstone_plugin`
+  `07d_session_reset`、`07_end_to_end`、`07e_jdgs_plugin`、`07f_szstone_plugin`、
+  `07g_dy7_plugin`
 - 分析面：`08_address_hook`；TRACE=ON 另有 `08_insn_trace`、
   `08_insn_trace_threads`、`insn_decode_test`
 - 单元：`elf_image_test`、`runtime_memory_test`、`ring_buffer_test`、
@@ -319,6 +320,9 @@ cmake --build build-trace -j"$(nproc)"
 # 得物 6.1.5.10：设备快照 + 属性画像，注入时钟 + 种子后逐字节复现
 ./build/user_code/duckemu_szstone_case --random-seed 7 \
   --wall-time-ns 1792886400000000000 --monotonic-time-ns 1000000000
+
+# 抖音 40.8.0：七组头；同一墙钟下 X-Argus / X-Khronos 与参考 runner 一致
+DY_WALL_TIME_MS=1792886400000 ./build/user_code/duckemu_dy7_case --print-headers
 ```
 
 各目标自己的运行参数、输入面与对拍方法见
@@ -381,7 +385,7 @@ libeleven 很简单（基本是魔改 base64），这组数字只说明链路通
 | M4.5 loader 补全 | APS2/RELR、TLS/TLSDESC、IFUNC、真依赖     | `04b_libc_map`                                                                  | ✅   |
 | M4.6 真 bionic   | preinit/scudo、VFS/`/proc`、真 pthread    | `04c_bionic`                                                                    | ✅   |
 | M5 JNI           | JNIEnv、`RegisterNatives`、严格 Java 环境 | `05_jni_stub`                                                                   | ✅   |
-| M6 真实目标      | libeleven / 京东 / 得物结果一致           | `06_clock_injection`、`07e_jdgs_plugin`、`07f_szstone_plugin`                   | ✅   |
+| M6 真实目标      | libeleven / 京东 / 得物 / 抖音结果一致    | `06_clock_injection`、`07e_jdgs_plugin`、`07f_szstone_plugin`、`07g_dy7_plugin` | ✅   |
 | M7 服务化        | System/Worker/Instance、UDS、warm pool    | `07_end_to_end`                                                                 | ✅   |
 | M8 分析面        | 指令级 trace（LR 结尾）、绝对地址 hook    | `insn_decode_test`、`08_insn_trace`、`08_insn_trace_threads`、`08_address_hook` | ✅   |
 
@@ -392,8 +396,8 @@ libeleven 很简单（基本是魔改 base64），这组数字只说明链路通
 M7 之后的工作按“下一个真实目标缺什么补什么”推进。2026-10-30 已完成：
 动态 `dlopen` 与 fd 基础、可写 VFS 沙箱与事件循环、`DeviceProfile`、属性区、
 `/dev` 字符节点、审计 #3/#5/#7（readlinkat/RNG/statfs）、得物接入与 CFI
-shadow。已知最大缺口是目录 fd + `getdents64`；下一个目标（快手/抖音）接入时
-按实际踩到的面补。
+shadow。2026-10-31 接入抖音（futex bitset、`GetObjectRefType`、4 MiB 栈）。
+已知最大缺口是目录 fd + `getdents64`；下一个目标（快手）接入时按实际踩到的面补。
 
 ## 设计文档
 
@@ -422,6 +426,7 @@ shadow。已知最大缺口是目录 fd + `getdents64`；下一个目标（快�
   - [dev 节点](docs/devlogs/2026-10-30-25-dev节点.md)
   - [审计 #3/#5/#7](docs/devlogs/2026-10-30-26-审计3-5-7.md)
   - [得物 szstone 接入与 CFI](docs/devlogs/2026-10-30-27-得物szstone接入与CFI.md)
+  - [抖音 dy7 接入](docs/devlogs/2026-10-31-31-抖音dy7接入.md)
 - [DuckDroid2 与 unidbg 的四种取舍](docs/DuckDroid2与unidbg-四种取舍.md)
 - [docs/目录说明.md](docs/目录说明.md) —— 目标目录结构与分层约束
 - [code/user_code/ENVIRONMENT.md](code/user_code/ENVIRONMENT.md) —— 目标项目的 Java 环境写法

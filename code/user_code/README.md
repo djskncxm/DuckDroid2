@@ -42,3 +42,14 @@
   ./build/user_code/duckemu_szstone_case --random-seed 7 \
     --wall-time-ns 1792886400000000000
   ```
+
+- [`dy7_case/`](dy7_case/)：抖音 40.8.0 `libmetasec_ml.so` 的七神签名
+  （`god7`，`url` + 头块进、七组头出）；target 内部入口 `+0x2e01c0`，
+  app id `dy7`，带 Mi 8 / API 32 属性画像。
+
+  ```bash
+  cmake --build build --target duckemu_dy7_case
+  ./build/user_code/duckemu_dy7_case
+  # 同一墙钟下 X-Argus / X-Khronos 与参考 runner 逐字节一致
+  DY_WALL_TIME_MS=1792886400000 ./build/user_code/duckemu_dy7_case --print-headers
+  ```
