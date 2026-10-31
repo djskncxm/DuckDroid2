@@ -430,6 +430,19 @@ void SvcDispatcher::logUnsupported(const observer::SvcEvent &event) const
 		break;
 	}
 	message += event.name;
+	if (event.kind == observer::SvcKind::Syscall)
+	{
+		// The arguments are what make an unsupported syscall diagnosable
+		// (which futex op, which flag word); frame addresses are not enough.
+		const char *separator = "(";
+		for (uint64_t argument : event.args)
+		{
+			message += separator;
+			message += hexString(argument);
+			separator = ", ";
+		}
+		message += ")";
+	}
 	message += " at ";
 	message += hexString(event.svc_address);
 	if (!event.stack.empty())

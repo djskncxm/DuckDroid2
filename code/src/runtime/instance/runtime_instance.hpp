@@ -36,7 +36,10 @@ struct RuntimeConfig
 {
 	uint32_t pid = 1000;
 	uint32_t tid = 1;
-	uint64_t stack_size = 64 * 1024;
+	// Real targets build deep frames: metasec's v5 signer alone uses more than
+	// 64 KiB below the entry SP, which used to run off a 64 KiB stack. The
+	// DuckDroid reference engine raised the same limit to 4 MiB.
+	uint64_t stack_size = 4 * 1024 * 1024;
 	uint64_t default_timeout_us = 5000000;
 
 	// Observation. An empty trace_path disables svc.log; record_memory_access
